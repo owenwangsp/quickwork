@@ -5,11 +5,13 @@ import { createStackNavigator } from '@react-navigation/stack';
 import InvoicesScreen from '../screens/Invoices/InvoicesScreen';
 import InvoiceDetailScreen from '../screens/Invoices/InvoiceDetailScreen';
 import InvoiceFormScreen from '../screens/Invoices/InvoiceFormScreen';
+import EstimateDetailScreen from '../screens/Estimates/EstimateDetailScreen';
 
 export type InvoicesStackParamList = {
   InvoicesList: undefined;
   InvoiceDetail: { invoiceId: string };
   InvoiceForm: { invoiceId?: string; fromEstimateId?: string };
+  EstimateDetail: { estimateId: string };
 };
 
 const Stack = createStackNavigator<InvoicesStackParamList>();
@@ -43,6 +45,11 @@ const InvoicesStackNavigator = () => {
         options={({ route }) => ({ 
           title: route.params?.invoiceId ? '编辑发票' : '新建发票' 
         })}
+      />
+      <Stack.Screen 
+        name="EstimateDetail" 
+        component={EstimateDetailScreen}
+        options={{ title: '报价单详情' }}
       />
     </Stack.Navigator>
   );

@@ -11,7 +11,7 @@ import {
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { Invoice, Client, Settings } from '../../models';
+import { Invoice, Client, Settings, Estimate } from '../../models';
 import { storageService, formatCurrency, formatDate, PDFService } from '../../utils';
 import { InvoicesStackParamList } from '../../navigation/InvoicesStackNavigator';
 
@@ -26,6 +26,7 @@ const InvoiceDetailScreen = () => {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [client, setClient] = useState<Client | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [relatedEstimate, setRelatedEstimate] = useState<Estimate | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,12 +41,19 @@ const InvoiceDetailScreen = () => {
       if (foundInvoice) {
         setInvoice(foundInvoice);
         
-        const clients = await storageService.getClients();
+        const [clients, settingsData, estimates] = await Promise.all([
+          storageService.getClients(),
+          storageService.getSettings(),
+          storageService.getEstimates(),
+        ]);
+        
         const foundClient = clients.find(c => c.id === foundInvoice.clientId);
         setClient(foundClient || null);
-        
-        const settingsData = await storageService.getSettings();
         setSettings(settingsData);
+        
+        // Load related estimate if this invoice was converted from an estimate
+        const foundEstimate = estimates.find(e => e.convertedInvoiceId === foundInvoice.id);
+        setRelatedEstimate(foundEstimate || null);
       } else {
         Alert.alert('错误', '发票未找到', [
           { text: '确定', onPress: () => navigation.goBack() },
@@ -189,6 +197,13 @@ ${invoice.notes ? `\n备注: ${invoice.notes}` : ''}
     );
   };
 
+  const handleViewRelatedEstimate = () => {
+    if (relatedEstimate) {
+      // Navigate to estimate detail screen within current stack
+      navigation.navigate('EstimateDetail', { estimateId: relatedEstimate.id });
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -328,6 +343,41 @@ ${invoice.notes ? `\n备注: ${invoice.notes}` : ''}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>备注</Text>
             <Text style={styles.notes}>{invoice.notes}</Text>
+          </View>
+        )}
+
+        {/* Related Estimate */}
+        {relatedEstimate && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>关联报价单</Text>
+            <TouchableOpacity style={styles.relatedEstimateCard} onPress={handleViewRelatedEstimate}>
+              <View style={styles.relatedEstimateHeader}>
+                <View style={styles.relatedEstimateInfo}>
+                  <Text style={styles.relatedEstimateNumber}>{relatedEstimate.estimateNumber}</Text>
+                  <Text style={styles.relatedEstimateDate}>
+                    发布: {formatDate(relatedEstimate.issueDate)}
+                  </Text>
+                  <Text style={styles.relatedEstimateDate}>
+                    有效期至: {formatDate(relatedEstimate.validUntil)}
+                  </Text>
+                </View>
+                <View style={styles.relatedEstimateRight}>
+                  <View style={[
+                    styles.relatedEstimateStatus,
+                    { backgroundColor: relatedEstimate.status === 'converted' ? '#4CAF50' : '#2196F3' }
+                  ]}>
+                    <Text style={styles.relatedEstimateStatusText}>
+                      {relatedEstimate.status === 'converted' ? '已转换' : 
+                       relatedEstimate.status === 'sent' ? '已发送' : '草稿'}
+                    </Text>
+                  </View>
+                  <Text style={styles.relatedEstimateAmount}>
+                    {formatCurrency(relatedEstimate.total)}
+                  </Text>
+                  <Icon name="arrow-forward-ios" size={16} color="#666" style={styles.arrowIcon} />
+                </View>
+              </View>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -533,6 +583,55 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  relatedEstimateCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  relatedEstimateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  relatedEstimateInfo: {
+    flex: 1,
+  },
+  relatedEstimateNumber: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2D6A4F',
+    marginBottom: 4,
+  },
+  relatedEstimateDate: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 2,
+  },
+  relatedEstimateRight: {
+    alignItems: 'flex-end',
+  },
+  relatedEstimateStatus: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  relatedEstimateStatusText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  relatedEstimateAmount: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2D6A4F',
+    marginBottom: 4,
+  },
+  arrowIcon: {
+    marginLeft: 8,
   },
 });
 

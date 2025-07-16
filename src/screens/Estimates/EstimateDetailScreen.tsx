@@ -11,7 +11,7 @@ import {
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { Estimate, Client, Settings } from '../../models';
+import { Estimate, Client, Settings, Invoice } from '../../models';
 import { storageService, formatCurrency, formatDate, PDFService } from '../../utils';
 import { EstimatesStackParamList } from '../../navigation/EstimatesStackNavigator';
 
@@ -26,6 +26,7 @@ const EstimateDetailScreen = () => {
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [client, setClient] = useState<Client | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [relatedInvoice, setRelatedInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,12 +41,21 @@ const EstimateDetailScreen = () => {
       if (foundEstimate) {
         setEstimate(foundEstimate);
         
-        const clients = await storageService.getClients();
+        const [clients, settingsData, invoices] = await Promise.all([
+          storageService.getClients(),
+          storageService.getSettings(),
+          storageService.getInvoices(),
+        ]);
+        
         const foundClient = clients.find(c => c.id === foundEstimate.clientId);
         setClient(foundClient || null);
-        
-        const settingsData = await storageService.getSettings();
         setSettings(settingsData);
+        
+        // Load related invoice if estimate is converted
+        if (foundEstimate.status === 'converted' && foundEstimate.convertedInvoiceId) {
+          const foundInvoice = invoices.find(i => i.id === foundEstimate.convertedInvoiceId);
+          setRelatedInvoice(foundInvoice || null);
+        }
       } else {
         Alert.alert('错误', '报价单未找到', [
           { text: '确定', onPress: () => navigation.goBack() },
@@ -107,9 +117,11 @@ const EstimateDetailScreen = () => {
                 convertedInvoiceId: invoice.id,
               };
               await storageService.saveEstimate(updatedEstimate);
+              setEstimate(updatedEstimate);
+              setRelatedInvoice(invoice);
 
               Alert.alert('成功', '已转换为发票', [
-                { text: '确定', onPress: () => navigation.goBack() },
+                { text: '确定', onPress: () => loadEstimateDetail() },
               ]);
             } catch (error) {
               console.error('Error converting to invoice:', error);
@@ -171,6 +183,13 @@ ${estimate.notes ? `\n备注: ${estimate.notes}` : ''}
     } catch (error) {
       console.error('Error generating PDF:', error);
       Alert.alert('错误', 'PDF生成失败');
+    }
+  };
+
+  const handleViewRelatedInvoice = () => {
+    if (relatedInvoice) {
+      // Navigate to invoice detail screen within current stack
+      navigation.navigate('InvoiceDetail', { invoiceId: relatedInvoice.id });
     }
   };
 
@@ -350,6 +369,40 @@ ${estimate.notes ? `\n备注: ${estimate.notes}` : ''}
           </View>
         </View>
 
+        {/* Related Invoice */}
+        {estimate.status === 'converted' && relatedInvoice && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>关联发票</Text>
+            <TouchableOpacity style={styles.relatedInvoiceCard} onPress={handleViewRelatedInvoice}>
+              <View style={styles.relatedInvoiceHeader}>
+                <View style={styles.relatedInvoiceInfo}>
+                  <Text style={styles.relatedInvoiceNumber}>{relatedInvoice.invoiceNumber}</Text>
+                  <Text style={styles.relatedInvoiceDate}>
+                    发布: {formatDate(relatedInvoice.issueDate)}
+                  </Text>
+                  <Text style={styles.relatedInvoiceDate}>
+                    到期: {formatDate(relatedInvoice.dueDate)}
+                  </Text>
+                </View>
+                <View style={styles.relatedInvoiceRight}>
+                  <View style={[
+                    styles.relatedInvoiceStatus,
+                    { backgroundColor: relatedInvoice.paid ? '#4CAF50' : '#FF9800' }
+                  ]}>
+                    <Text style={styles.relatedInvoiceStatusText}>
+                      {relatedInvoice.paid ? '已付款' : '未付款'}
+                    </Text>
+                  </View>
+                  <Text style={styles.relatedInvoiceAmount}>
+                    {formatCurrency(relatedInvoice.total)}
+                  </Text>
+                  <Icon name="arrow-forward-ios" size={16} color="#666" style={styles.arrowIcon} />
+                </View>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Notes */}
         {estimate.notes && (
           <View style={styles.section}>
@@ -367,11 +420,17 @@ ${estimate.notes ? `\n备注: ${estimate.notes}` : ''}
             <Text style={styles.convertButtonText}>转换为发票</Text>
           </TouchableOpacity>
         )}
-        {estimate.status === 'converted' && estimate.convertedInvoiceId && (
-          <View style={styles.convertedInfo}>
-            <Icon name="check-circle" size={20} color="#4CAF50" />
-            <Text style={styles.convertedText}>已转换为发票</Text>
-          </View>
+        {estimate.status === 'converted' && relatedInvoice && (
+          <TouchableOpacity style={styles.convertedInfo} onPress={handleViewRelatedInvoice}>
+            <View style={styles.convertedLeft}>
+              <Icon name="check-circle" size={20} color="#4CAF50" />
+              <View style={styles.convertedTextContainer}>
+                <Text style={styles.convertedText}>已转换为发票</Text>
+                <Text style={styles.convertedInvoiceNumber}>{relatedInvoice.invoiceNumber}</Text>
+              </View>
+            </View>
+            <Icon name="arrow-forward-ios" size={16} color="#4CAF50" />
+          </TouchableOpacity>
         )}
       </View>
     </View>
@@ -587,13 +646,78 @@ const styles = StyleSheet.create({
   convertedInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     padding: 16,
+    backgroundColor: '#f0f8f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  convertedLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  convertedTextContainer: {
+    marginLeft: 8,
   },
   convertedText: {
     color: '#4CAF50',
     fontSize: 16,
     fontWeight: '600',
+  },
+  convertedInvoiceNumber: {
+    color: '#4CAF50',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  relatedInvoiceCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  relatedInvoiceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  relatedInvoiceInfo: {
+    flex: 1,
+  },
+  relatedInvoiceNumber: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2D6A4F',
+    marginBottom: 4,
+  },
+  relatedInvoiceDate: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 2,
+  },
+  relatedInvoiceRight: {
+    alignItems: 'flex-end',
+  },
+  relatedInvoiceStatus: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  relatedInvoiceStatusText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  relatedInvoiceAmount: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2D6A4F',
+    marginBottom: 4,
+  },
+  arrowIcon: {
     marginLeft: 8,
   },
 });
